@@ -1,0 +1,13 @@
+node_modules/
+dist/
+dist-server/
+data/
+libs/*
+!libs/app-kit.tgz
+*.log
+.env
+.env.local
+.DS_Store
+coverage/
+vite.config.ts.timestamp*
+.vscode/

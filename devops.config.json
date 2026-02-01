@@ -1,0 +1,11 @@
+{
+  "projectName": "Crawler Service",
+  "packageJsonPath": ".",
+  "ghcrOrg": "mchen-lab",
+  "dockerHubUser": "xychenmsn",
+  "imageName": "crawler-service",
+  "containerName": "crawler-service",
+  "volumeName": "crawler_service_data",
+  "ports": [31171],
+  "allowedProcesses": ["node"]
+}
