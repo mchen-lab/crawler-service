@@ -6,6 +6,6 @@
   "imageName": "crawler-service",
   "containerName": "crawler-service",
   "volumeName": "crawler_service_data",
-  "ports": [31171],
+  "ports": [31170, 31171],
   "allowedProcesses": ["node"]
 }

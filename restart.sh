@@ -13,10 +13,10 @@ PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # CONFIGURATION (populated from devops.config.json)
 # ============================================================================
 # All ports to kill on restart
-KILL_PORTS="{{PORTS_ARRAY}}"
+KILL_PORTS="31170 31171"
 
 # Allowed process names to kill (regex pattern for matching)
-ALLOWED_PROCESSES="{{ALLOWED_PROCESSES}}"
+ALLOWED_PROCESSES="node"
 
 # ============================================================================
 # HELPER FUNCTIONS
@@ -117,7 +117,7 @@ kill_all_ports() {
 }
 
 start_server() {
-    echo "🚀 Starting crawler-service on port 31171..."
+    echo "🚀 Starting crawler-service on port 31170..."
 
     # Ensure logs/servers directory exists
     mkdir -p "$PROJECT_ROOT/logs"
@@ -176,7 +176,7 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo "✅ crawler-service is running!"
 echo ""
 echo "📍 Services:"
-echo "   • Web UI & API: http://localhost:31171"
+echo "   • Web UI & API: http://localhost:31170"
 echo ""
 echo "Press Ctrl+C to stop"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

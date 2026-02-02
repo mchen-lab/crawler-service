@@ -1,183 +1,149 @@
-import { useState, useEffect, ReactNode } from "react";
-import { useAppKit } from "@mchen-lab/app-kit/frontend";
-import { Button } from "@/components/ui/button";
+import React, { useState, useEffect } from "react";
+import { Button } from "./ui/button";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogClose,
-  DialogTrigger,
-  DialogFooter,
-} from "@/components/ui/dialog";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+} from "./ui/dialog";
+import { Input } from "./ui/input";
+import { Label } from "./ui/label";
+import { Switch } from "./ui/switch";
 import { Settings } from "lucide-react";
 import { toast } from "sonner";
 
-/**
- * Tab configuration for ConfigDialog
- */
-export interface ConfigTab {
-  /** Unique identifier for the tab */
-  id: string;
-  /** Display label for the tab */
-  label: string;
-  /** Content to render in the tab panel */
-  content: ReactNode;
-}
-
 interface ConfigDialogProps {
-  /**
-   * Array of tab configurations to render.
-   * If not provided, shows a default placeholder.
-   */
-  tabs?: ConfigTab[];
-  /**
-   * Callback when save button is clicked.
-   * Should return a Promise that resolves on success.
-   */
-  onSave?: () => Promise<void>;
-  /**
-   * Callback after dialog closes (after successful save)
-   */
-  onConfigUpdate?: () => void;
-  /**
-   * Dialog title (default: "Configuration")
-   */
-  title?: string;
-  /**
-   * Trigger button variant
-   */
-  triggerVariant?: "icon" | "button";
-  /**
-   * Custom trigger element (overrides triggerVariant)
-   */
-  trigger?: ReactNode;
+  trigger?: React.ReactNode;
+  isOpen?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
-/**
- * Enhanced ConfigDialog with Radix UI Dialog and Tabs support.
- * 
- * Example usage with tabs:
- * ```tsx
- * <ConfigDialog
- *   tabs={[
- *     { id: "general", label: "General", content: <GeneralSettings /> },
- *     { id: "advanced", label: "Advanced", content: <AdvancedSettings /> },
- *   ]}
- *   onSave={async () => {
- *     await fetch("/api/settings", { method: "POST", body: JSON.stringify(settings) });
- *   }}
- * />
- * ```
- */
-export function ConfigDialog({ 
-  tabs,
-  onSave,
-  onConfigUpdate,
-  title = "Configuration",
-  triggerVariant = "icon",
-  trigger
-}: ConfigDialogProps) {
-  const [open, setOpen] = useState(false);
+export function ConfigDialog({ trigger, isOpen, onOpenChange }: ConfigDialogProps) {
+  const [browserlessUrl, setBrowserlessUrl] = useState("");
+  const [proxyUrl, setProxyUrl] = useState("");
+  const [browserStealth, setBrowserStealth] = useState(true);
+  const [browserHeadless, setBrowserHeadless] = useState(true);
   const [loading, setLoading] = useState(false);
-  const { version, refreshSettings } = useAppKit();
 
-  const handleSave = async () => {
-    if (!onSave) {
-      setOpen(false);
-      return;
+  // Load config when dialog opens
+  useEffect(() => {
+    if (isOpen) {
+      fetchConfig();
     }
+  }, [isOpen]);
 
+  const fetchConfig = async () => {
     setLoading(true);
     try {
-      await onSave();
-      toast.success("Configuration saved successfully");
-      setOpen(false);
-      refreshSettings();
-      if (onConfigUpdate) onConfigUpdate();
-    } catch (error) {
-      console.error("Failed to save:", error);
+      const res = await fetch("/api/config");
+      if (res.ok) {
+        const data = await res.json();
+        setBrowserlessUrl(data.browserlessUrl || "");
+        setProxyUrl(data.proxyUrl || "");
+        setBrowserStealth(data.browserStealth ?? true);
+        setBrowserHeadless(data.browserHeadless ?? true);
+      }
+    } catch (e) {
+      toast.error("Failed to load config");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const saveConfig = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch("/api/config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ 
+          browserlessUrl, 
+          proxyUrl,
+          browserStealth,
+          browserHeadless
+        }),
+      });
+      
+      if (res.ok) {
+        toast.success("Configuration saved");
+        onOpenChange?.(false);
+      } else {
+        throw new Error("Failed to save");
+      }
+    } catch (e) {
       toast.error("Failed to save configuration");
     } finally {
       setLoading(false);
     }
   };
 
-  // Default trigger button
-  const defaultTrigger = triggerVariant === "icon" ? (
-    <Button 
-      variant="ghost" 
-      size="icon" 
-      className="h-9 w-9 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-full" 
-      title={title}
-    >
-      <Settings className="h-5 w-5" />
-    </Button>
-  ) : (
-    <Button variant="secondary">
-      <Settings className="h-4 w-4 mr-2" />
-      {title}
-    </Button>
-  );
-
-  // Default placeholder content
-  const defaultContent = (
-    <div className="p-4 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-600">
-      <p>This is a placeholder for your application configuration.</p>
-      <p className="mt-2">Provide the <code className="bg-slate-100 px-1 rounded">tabs</code> prop to add configuration sections.</p>
-    </div>
-  );
-
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        {trigger || defaultTrigger}
-      </DialogTrigger>
-      <DialogContent className="sm:max-w-[600px] h-[500px] flex flex-col">
+    <Dialog open={isOpen} onOpenChange={onOpenChange}>
+      {trigger}
+      <DialogContent className="sm:max-w-[500px]">
         <DialogHeader>
-          <DialogTitle>{title}</DialogTitle>
+          <DialogTitle>Configuration</DialogTitle>
+          <DialogDescription>
+            Update crawler service settings and anti-bot features.
+          </DialogDescription>
         </DialogHeader>
-        
-        {tabs && tabs.length > 0 ? (
-          <Tabs defaultValue={tabs[0].id} className="flex-1 w-full flex flex-col min-h-0">
-            <TabsList className="grid w-full" style={{ gridTemplateColumns: `repeat(${tabs.length}, 1fr)` }}>
-              {tabs.map((tab) => (
-                <TabsTrigger key={tab.id} value={tab.id}>{tab.label}</TabsTrigger>
-              ))}
-            </TabsList>
-            
-            <div className="flex-1 min-h-0 relative">
-              {tabs.map((tab) => (
-                <TabsContent 
-                  key={tab.id} 
-                  value={tab.id} 
-                  className="absolute inset-0 overflow-y-auto py-4"
-                >
-                  {tab.content}
-                </TabsContent>
-              ))}
-            </div>
-          </Tabs>
-        ) : (
-          <div className="flex-1 overflow-y-auto py-4">
-            {defaultContent}
+        <div className="grid gap-6 py-4">
+          <div className="grid gap-2">
+            <Label htmlFor="browserless-url">Browserless URL</Label>
+            <Input
+              id="browserless-url"
+              value={browserlessUrl}
+              onChange={(e) => setBrowserlessUrl(e.target.value)}
+              placeholder="ws://localhost:3000"
+            />
           </div>
-        )}
+          <div className="grid gap-2">
+            <Label htmlFor="proxy-url">Proxy URL</Label>
+            <Input
+              id="proxy-url"
+              value={proxyUrl}
+              onChange={(e) => setProxyUrl(e.target.value)}
+              placeholder="http://proxy:8080"
+            />
+          </div>
+          
+          <div className="flex flex-col gap-4 border p-4 rounded-md bg-muted/20">
+             <h4 className="font-medium text-sm text-muted-foreground mb-2">Anti-Bot Features</h4>
+             
+             <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label htmlFor="stealth-mode" className="text-base">Stealth Mode</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Masks automation signals to avoid detection.
+                  </p>
+                </div>
+                <Switch 
+                  id="stealth-mode" 
+                  checked={browserStealth} 
+                  onCheckedChange={setBrowserStealth} 
+                />
+             </div>
 
-        <DialogFooter className="mt-4 gap-2">
-          <DialogClose asChild>
-            <Button variant="outline" className="cursor-pointer">
-              Cancel
-            </Button>
-          </DialogClose>
-          <Button 
-            type="submit" 
-            onClick={handleSave} 
-            disabled={loading} 
-            className="bg-slate-900 text-white"
-          >
-            {loading ? "Saving..." : "Save Configuration"}
+             <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label htmlFor="headless-mode" className="text-base">Headless Mode</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Run browser without UI. Turn off if getting blocked.
+                  </p>
+                </div>
+                <Switch 
+                  id="headless-mode" 
+                  checked={browserHeadless} 
+                  onCheckedChange={setBrowserHeadless} 
+                />
+             </div>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button type="submit" onClick={saveConfig} disabled={loading}>
+            {loading ? "Saving..." : "Save changes"}
           </Button>
         </DialogFooter>
       </DialogContent>

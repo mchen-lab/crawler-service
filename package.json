@@ -13,18 +13,24 @@
   },
   "dependencies": {
     "@mchen-lab/app-kit": "file:libs/app-kit.tgz",
+    "crawlee": "^3.15.3",
+    "express": "^4.18.2",
+    "playwright": "^1.58.1",
+    "puppeteer-core": "^24.36.1",
+    "ws": "^8.19.0"
+  },
+  "devDependencies": {
     "@radix-ui/react-alert-dialog": "^1.1.15",
     "@radix-ui/react-dialog": "^1.1.15",
     "@radix-ui/react-label": "^2.1.8",
     "@radix-ui/react-scroll-area": "^1.2.10",
     "@radix-ui/react-select": "^2.2.6",
     "@radix-ui/react-slot": "^1.2.4",
+    "@radix-ui/react-switch": "^1.2.6",
     "@radix-ui/react-tabs": "^1.1.13",
     "@tailwindcss/typography": "^0.5.16",
-    "axios": "^1.7.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "express": "^4.18.2",
     "framer-motion": "^11.5.0",
     "lucide-react": "^0.563.0",
     "react": "^19.0.0",
@@ -32,9 +38,6 @@
     "react-markdown": "^9.0.3",
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.4.0",
-    "ws": "^8.19.0"
-  },
-  "devDependencies": {
     "@tailwindcss/vite": "^4.0.0",
     "@types/express": "^4.17.18",
     "@types/node": "^20.8.0",

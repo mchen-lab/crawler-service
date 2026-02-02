@@ -5,6 +5,7 @@ data/
 libs/*
 !libs/app-kit.tgz
 *.log
+logs/
 .env
 .env.local
 .DS_Store

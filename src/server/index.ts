@@ -17,12 +17,16 @@ interface GlobalConfig {
   browserlessUrl: string;
   proxyUrl: string;
   defaultEngine: "auto" | "fast" | "browser";
+  browserStealth: boolean;
+  browserHeadless: boolean;
 }
 
 const defaultConfig: GlobalConfig = {
   browserlessUrl: process.env.BROWSERLESS_URL || "ws://localhost:3000",
   proxyUrl: process.env.PROXY_URL || "http://localhost:31131",
   defaultEngine: "auto",
+  browserStealth: true,
+  browserHeadless: true,
 };
 
 // Initialize AppKit
@@ -101,11 +105,36 @@ export const logger = {
 // =============================================================================
 
 // Status API
-app.get("/api/status", (_req: Request, res: Response) => {
+async function checkBrowserConnection(wsUrl: string): Promise<boolean> {
+  try {
+    // Convert ws:// to http:// for health check
+    // Browserless typically exposes GET / or GET /sessions on the same port
+    const httpUrl = wsUrl.replace(/^ws/, "http");
+    
+    // We'll use a short timeout to avoid hanging the status check
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 1000);
+    
+    // Check root or a lightweight endpoint. Browserless often has /metrics or just /
+    const res = await fetch(httpUrl, { 
+      method: 'GET',
+      signal: controller.signal 
+    });
+    
+    clearTimeout(timeoutId);
+    return res.ok;
+  } catch (e) {
+    return false;
+  }
+}
+
+app.get("/api/status", async (_req: Request, res: Response) => {
+  const browserConnected = await checkBrowserConnection(globalConfig.browserlessUrl);
+  
   res.json({
     status: "operational",
     activeRequests: 0,
-    browserConnected: true, // TODO: Actually check browserless connection
+    browserConnected,
     uptime: (Date.now() - startTime) / 1000,
     timestamp: new Date().toISOString(),
   });
@@ -125,17 +154,21 @@ app.get("/api/config", (_req: Request, res: Response) => {
     browserlessUrl: globalConfig.browserlessUrl,
     proxyUrl: globalConfig.proxyUrl,
     defaultEngine: globalConfig.defaultEngine,
+    browserStealth: globalConfig.browserStealth,
+    browserHeadless: globalConfig.browserHeadless,
   });
 });
 
 // Config API - Update configuration
 app.post("/api/config", async (req: Request, res: Response) => {
   try {
-    const { browserlessUrl, proxyUrl, defaultEngine } = req.body;
+    const { browserlessUrl, proxyUrl, defaultEngine, browserStealth, browserHeadless } = req.body;
     
-    if (browserlessUrl) globalConfig.browserlessUrl = browserlessUrl;
-    if (proxyUrl) globalConfig.proxyUrl = proxyUrl;
-    if (defaultEngine) globalConfig.defaultEngine = defaultEngine;
+    if (browserlessUrl !== undefined) globalConfig.browserlessUrl = browserlessUrl;
+    if (proxyUrl !== undefined) globalConfig.proxyUrl = proxyUrl;
+    if (defaultEngine !== undefined) globalConfig.defaultEngine = defaultEngine;
+    if (browserStealth !== undefined) globalConfig.browserStealth = browserStealth;
+    if (browserHeadless !== undefined) globalConfig.browserHeadless = browserHeadless;
     
     await appKit.saveConfig();
     logger.info("Configuration updated");
@@ -237,17 +270,20 @@ app.post("/api/fetch", async (req: Request, res: Response) => {
 });
 
 // =============================================================================
-// Server Startup & Frontend Integration
-// =============================================================================
+
 
 async function start() {
   await appKit.initialize();
   globalConfig = appKit.config as GlobalConfig;
 
-  const server = createServer(app);
+  // ---------------------------------------------------------------------------
+  // Main Server (UI + API) - Port 31170
+  // ---------------------------------------------------------------------------
+  const mainPort = 31170;
+  const mainServer = createServer(app);
 
-  // WebSocket server for real-time logs
-  const wss = new WebSocketServer({ server, path: "/ws/logs" });
+  // WebSocket server for real-time logs (attached to main server)
+  const wss = new WebSocketServer({ server: mainServer, path: "/ws/logs" });
   wss.on("connection", (ws: WebSocket) => {
     wsClients.add(ws);
     ws.send(JSON.stringify({ type: "history", data: logs }));
@@ -268,7 +304,7 @@ async function start() {
       const viteServer = await vite.createServer({
         server: { 
           middlewareMode: true,
-          hmr: { server }
+          hmr: { server: mainServer }
         },
         appType: "spa",
         root: frontendDir,
@@ -288,19 +324,99 @@ async function start() {
     }
   }
 
-  server.on("error", (err: any) => {
-    if (err.code === "EADDRINUSE") {
-      console.error(`❌ Port ${PORT} is already in use.`);
-    } else {
-      console.error(`❌ Server error: ${err.message}`);
-    }
+  mainServer.listen(mainPort, "0.0.0.0", () => {
+    console.log(`🚀 Main Server running on http://localhost:${mainPort}`);
+    logger.info(`Main Server started on port ${mainPort}`);
   });
 
-  server.listen(Number(PORT), "0.0.0.0", () => {
-    console.log(`🚀 Crawler Service running on http://localhost:${PORT}`);
-    logger.info("Server started successfully");
+  // ---------------------------------------------------------------------------
+  // Crawler API Server - Port 31171 (Dedicated)
+  // ---------------------------------------------------------------------------
+  const crawlerApiPort = 31171;
+  const crawlerApp = express();
+  
+  // Enable JSON body parsing for the crawler app
+  crawlerApp.use(express.json());
+  
+  // Share the same fetch logic, but mount it on the dedicated app
+  crawlerApp.post("/api/fetch", async (req: Request, res: Response) => {
+    // We reuse the existing logic by forwarding the request or extracting the handler
+    // Ideally, we should refactor the handler to a separate function.
+    // For now, let's just invoke the main app handler logic via internal call or duplicate the route registration.
+    // To keep it clean, let's extract the handler.
+    
+    // (See below for handler extraction implementation)
+    await handleFetchRequest(req, res);
+  });
+
+  // Health check for crawler service
+  crawlerApp.get("/health", (_req, res) => res.json({ status: "ok", type: "crawler-api" }));
+
+  crawlerApp.listen(crawlerApiPort, "0.0.0.0", () => {
+    console.log(`🕷️ Crawler API Server running on http://localhost:${crawlerApiPort}`);
+    logger.info(`Crawler API Server started on port ${crawlerApiPort}`);
   });
 }
 
+// Extracted handler for reuse across both ports
+async function handleFetchRequest(req: Request, res: Response) {
+  const { url, engine = "auto", renderJs = false, proxy } = req.body as FetchRequest;
+
+  if (!url) {
+    res.status(400).json({ error: "URL is required" });
+    return;
+  }
+
+  const targetProxy = proxy || globalConfig.proxyUrl;
+
+  // Determine which engine to use
+  let useBrowser = false;
+  if (engine === "browser") {
+    useBrowser = true;
+  } else if (engine === "fast") {
+    useBrowser = false;
+  } else if (renderJs) {
+    useBrowser = true;
+  } else {
+    // Auto mode: default to fast
+    useBrowser = false;
+  }
+
+  try {
+    let result: FetchResult;
+
+    if (useBrowser) {
+      logger.info(`Routing to Browser Lane: ${url}`);
+      const crawler = new BrowserCrawler(globalConfig.browserlessUrl, targetProxy);
+      result = await crawler.fetch(url);
+    } else {
+      logger.info(`Routing to Fast Lane: ${url}`);
+      const crawler = new FastCrawler(targetProxy);
+      result = await crawler.fetch(url);
+    }
+
+    logger.success(`Fetched ${url} - Status: ${result.statusCode} (${result.engineUsed})`);
+
+    res.json({
+      success: true,
+      statusCode: result.statusCode,
+      content: result.content,
+      headers: result.headers,
+      url: result.url,
+      engineUsed: result.engineUsed,
+    });
+  } catch (error: any) {
+    logger.fail(`Fetch failed for ${url}: ${error.message}`);
+    res.json({
+      success: false,
+      error: error.message,
+    });
+  }
+}
+
+// Update the main app route to use the extracted handler
+app.post("/api/fetch", handleFetchRequest);
+
 start().catch((err) => console.error("Startup failed", err));
+
 

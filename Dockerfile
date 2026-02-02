@@ -20,6 +20,10 @@ RUN npm ci
 # Copy source files
 COPY . .
 
+# Skip browser downloads (using remote browserless)
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+
 # Build arguments
 ARG GIT_COMMIT
 ARG BUILD_METADATA
@@ -55,19 +59,26 @@ COPY package*.json ./
 # Copy local libs for production install
 COPY libs ./libs
 
+# Skip browser downloads in production too
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+
 # Install only production dependencies
-RUN npm ci --only=production
+RUN npm ci --only=production && \
+    # Clean up caches to reduce image size
+    rm -rf /root/.cache && \
+    rm -rf /root/.npm
 
 # Copy built assets from builder
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/dist-server ./dist-server
 
 # Expose port
-EXPOSE 31171
+EXPOSE 31170
 
 # Set environment variables
 ENV NODE_ENV=production
-ENV PORT=31171
+ENV PORT=31170
 ENV DATA_DIR=/app/data
 ENV LOGS_DIR=/app/logs
 # Also pass build info to production for runtime API
