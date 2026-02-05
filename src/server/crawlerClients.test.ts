@@ -51,7 +51,10 @@ describe("FastCrawler", () => {
     const crawler = new FastCrawler();
     const result = await crawler.fetch("http://example.com");
 
-    expect(capturedRun).toHaveBeenCalledWith(["http://example.com"]);
+    expect(capturedRun).toHaveBeenCalledWith([{
+      url: "http://example.com",
+      headers: {},
+    }]);
     expect(result.content).toContain("Test");
     expect(result.statusCode).toBe(200);
   });
@@ -101,7 +104,10 @@ describe("BrowserCrawler", () => {
     const crawler = new BrowserCrawler("ws://browserless:3000");
     const result = await crawler.fetch("http://example.com");
 
-    expect(capturedRun).toHaveBeenCalledWith(["http://example.com"]);
+    expect(capturedRun).toHaveBeenCalledWith([{
+      url: "http://example.com",
+      headers: {},
+    }]);
     expect(result.content).toContain("Browser Test");
     expect(result.statusCode).toBe(200);
   });
