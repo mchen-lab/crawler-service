@@ -212,6 +212,8 @@ interface FetchRequest {
   engine?: "auto" | "fast" | "browser";
   renderJs?: boolean;
   proxy?: string;
+  headers?: Record<string, string>;
+  preset?: "chrome";
 }
 
 app.post("/api/fetch", async (req: Request, res: Response) => {
@@ -358,9 +360,23 @@ async function start() {
   });
 }
 
-// Extracted handler for reuse across both ports
+// Markdown Utility
+import { htmlToMarkdown, extractMainContent } from "./markdown.js";
+
+// ...
+
+interface FetchRequest {
+  url: string;
+  engine?: "auto" | "fast" | "browser";
+  renderJs?: boolean;
+  proxy?: string;
+  headers?: Record<string, string>;
+  preset?: "chrome";
+  format?: "html" | "markdown" | "html-stripped"; // New Field
+}
+
 async function handleFetchRequest(req: Request, res: Response) {
-  const { url, engine = "auto", renderJs = false, proxy } = req.body as FetchRequest;
+  const { url, engine = "auto", renderJs = false, proxy, headers, preset, format = "html" } = req.body as FetchRequest;
 
   if (!url) {
     res.status(400).json({ error: "URL is required" });
@@ -386,21 +402,44 @@ async function handleFetchRequest(req: Request, res: Response) {
     let result: FetchResult;
 
     if (useBrowser) {
-      logger.info(`Routing to Browser Lane: ${url}`);
+      logger.info(`Routing to Browser Lane: ${url} (preset: ${preset || "none"})`);
       const crawler = new BrowserCrawler(globalConfig.browserlessUrl, targetProxy);
-      result = await crawler.fetch(url);
+      result = await crawler.fetch(url, headers, preset);
     } else {
-      logger.info(`Routing to Fast Lane: ${url}`);
+      logger.info(`Routing to Fast Lane: ${url} (preset: ${preset || "none"})`);
       const crawler = new FastCrawler(targetProxy);
-      result = await crawler.fetch(url);
+      result = await crawler.fetch(url, headers, preset);
     }
 
     logger.success(`Fetched ${url} - Status: ${result.statusCode} (${result.engineUsed})`);
 
+    // Handle Conversions
+    let finalContent = result.content;
+    let finalMarkdown: string | undefined;
+
+    if (format === "markdown") {
+        try {
+            finalMarkdown = htmlToMarkdown(result.content, url);
+        } catch (e) {
+            logger.error(`Markdown conversion failed: ${e}`);
+        }
+    } else if (format === "html-stripped") {
+        try {
+             // Extract main content (stripped HTML)
+             const extracted = extractMainContent(result.content, url);
+             if (extracted) {
+                 finalContent = extracted.content;
+             }
+        } catch (e) {
+             logger.error(`Stripped HTML conversion failed: ${e}`);
+        }
+    }
+
     res.json({
       success: true,
       statusCode: result.statusCode,
-      content: result.content,
+      content: finalContent,     // HTML (Raw or Stripped)
+      markdown: finalMarkdown,   // Markdown if requested
       headers: result.headers,
       url: result.url,
       engineUsed: result.engineUsed,

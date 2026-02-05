@@ -7,7 +7,37 @@
  */
 
 import { HttpCrawler, PuppeteerCrawler, ProxyConfiguration, Configuration } from "crawlee";
-import puppeteer from "puppeteer";
+import puppeteerExtra from "puppeteer-extra";
+import StealthPlugin from "puppeteer-extra-plugin-stealth";
+
+// Cast to any to avoid TS issues with NodeNext module resolution and missing types
+const puppeteer = puppeteerExtra as any;
+
+// Use stealth plugin for all puppeteer instances (local)
+puppeteer.use(StealthPlugin());
+
+// --- Header Presets ---
+
+export const CHROME_HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+    'Accept': 'application/json, text/javascript, */*; q=0.01',
+    'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+    'Connection': 'keep-alive',
+    'Sec-Ch-Ua': '"Not;A=Brand";v="99", "Google Chrome";v="91", "Chromium";v="91"',
+    'Sec-Ch-Ua-Mobile': '?0',
+    'Sec-Fetch-Dest': 'empty',
+    'Sec-Fetch-Mode': 'cors',
+    'Sec-Fetch-Site': 'same-origin'
+};
+
+export type HeaderPreset = "chrome" | undefined;
+
+function getPresetHeaders(preset?: HeaderPreset): Record<string, string> {
+    if (preset === 'chrome') return CHROME_HEADERS;
+    return {};
+}
+
+// ----------------------
 
 export interface FetchResult {
   statusCode: number;
@@ -28,7 +58,7 @@ export class FastCrawler {
     this.proxyUrl = proxyUrl || null;
   }
 
-  async fetch(url: string): Promise<FetchResult> {
+  async fetch(url: string, headers?: Record<string, string>, preset?: HeaderPreset): Promise<FetchResult> {
     let result: FetchResult | null = null;
     let error: Error | null = null;
 
@@ -40,6 +70,8 @@ export class FastCrawler {
     const config = new Configuration({
       persistStorage: false,
     });
+
+    const finalHeaders = { ...getPresetHeaders(preset), ...headers };
 
     const crawler = new HttpCrawler({
       proxyConfiguration,
@@ -63,7 +95,8 @@ export class FastCrawler {
       },
     }, config);
 
-    await crawler.run([url]);
+    // Crawlee's request options support headers
+    await crawler.run([{ url, headers: finalHeaders }]);
 
     if (error) throw error;
     if (!result) throw new Error("No result from crawler");
@@ -96,7 +129,7 @@ export class BrowserCrawler {
     };
   }
 
-  async fetch(url: string): Promise<FetchResult> {
+  async fetch(url: string, headers?: Record<string, string>, preset?: HeaderPreset): Promise<FetchResult> {
     let result: FetchResult | null = null;
     let error: Error | null = null;
 
@@ -108,6 +141,8 @@ export class BrowserCrawler {
     const config = new Configuration({
       persistStorage: false,
     });
+
+    const finalHeaders = { ...getPresetHeaders(preset), ...headers };
 
     const crawler = new PuppeteerCrawler({
       proxyConfiguration,
@@ -137,6 +172,7 @@ export class BrowserCrawler {
                         }
 
                         console.log(`[BrowserCrawler] Connecting to remote: ${wsEndpoint}`);
+                        // Use puppeteer-extra to connect (it works same as standard)
                         const browser = await puppeteer.connect({
                             ...options,
                             browserWSEndpoint: wsEndpoint,
@@ -151,9 +187,10 @@ export class BrowserCrawler {
                 // 2. Fallback: Launch local Chrome (requires puppeteer package)
                 console.log("[BrowserCrawler] Launching local browser...");
                 this.engineType = "crawlee:local-puppeteer";
+                // Use puppeteer-extra to launch (includes Stealth)
                 return await puppeteer.launch({
                     ...options,
-                    headless: true,
+                    headless: this.options.headless ? "new" : false, // Use new headless mode
                     args: ["--no-sandbox", "--disable-setuid-sandbox"], // Safe defaults for local/docker
                 });
             },
@@ -165,6 +202,12 @@ export class BrowserCrawler {
       },
       // Important: prevent Crawlee from managing local browser processes incompatible with browserWSEndpoint
       requestHandler: async ({ page, response, request }) => {
+        // Apply custom headers if provided
+        if (request.headers && Object.keys(request.headers).length > 0) {
+            // Puppeteer requires explicit setting of extra headers
+            await page.setExtraHTTPHeaders(request.headers as Record<string, string>);
+        }
+
         const content = await page.content();
         const headers = response?.headers() || {};
         const statusCode = response?.status() || 200;
@@ -186,7 +229,7 @@ export class BrowserCrawler {
       },
     }, config);
 
-    await crawler.run([url]);
+    await crawler.run([{ url, headers: finalHeaders }]);
 
     if (error) throw error;
     if (!result) throw new Error("No result from browser crawler");

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useAppKit } from "@mchen-lab/app-kit/frontend";
+import logoImage from "./logo.png";
 import { Layout } from "./components/Layout";
 import { LogViewer } from "./components/LogViewer";
 import { Button } from "./components/ui/button";
@@ -36,6 +37,7 @@ function App() {
 
   return (
     <Layout
+      logo={logoImage}
       statusBadges={
         status?.browserConnected ? (
           <Badge variant="outline" className="bg-green-500/10 text-green-600 border-green-200 hover:bg-green-500/20">
