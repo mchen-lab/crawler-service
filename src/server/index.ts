@@ -378,7 +378,8 @@ interface FetchRequest {
   proxy?: string;
   headers?: Record<string, string>;
   preset?: "chrome";
-  format?: "html" | "markdown" | "html-stripped"; // New Field
+  format?: "html" | "markdown" | "html-stripped";
+  responseType?: "text" | "base64";
 }
 
 function processContentFormat(content: string, url: string, format?: string): { content: string, markdown?: string } {
@@ -407,7 +408,7 @@ function processContentFormat(content: string, url: string, format?: string): { 
 }
 
 async function handleFetchRequest(req: Request, res: Response) {
-  const { url, engine = "auto", renderJs = false, proxy, headers, preset, format = "html" } = req.body as FetchRequest;
+  const { url, engine = "auto", renderJs = false, proxy, headers, preset, format = "html", responseType = "text" } = req.body as FetchRequest;
 
   if (!url) {
     res.status(400).json({ error: "URL is required" });
@@ -429,17 +430,23 @@ async function handleFetchRequest(req: Request, res: Response) {
     useBrowser = false;
   }
 
+  // FORCE fast mode if responseType is base64 (browser mode doesn't support binary efficienty yet)
+  if (responseType === "base64" && useBrowser) {
+    logger.warn(`base64 requested but engine was browser. Switching to fast engine for binary support.`);
+    useBrowser = false;
+  }
+
   try {
     let result: FetchResult;
 
     if (useBrowser) {
       logger.info(`Routing to Browser Lane: ${url} (preset: ${preset || "none"})`);
       const crawler = new BrowserCrawler(globalConfig.browserlessUrl, targetProxy);
-      result = await crawler.fetch(url, headers, preset);
+      result = await crawler.fetch(url, headers, preset, responseType);
     } else {
       logger.info(`Routing to Fast Lane: ${url} (preset: ${preset || "none"})`);
       const crawler = new FastCrawler(targetProxy);
-      result = await crawler.fetch(url, headers, preset);
+      result = await crawler.fetch(url, headers, preset, responseType);
     }
 
     logger.success(`Fetched ${url} - Status: ${result.statusCode} (${result.engineUsed})`);

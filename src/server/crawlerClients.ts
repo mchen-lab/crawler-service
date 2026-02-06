@@ -45,6 +45,7 @@ export interface FetchResult {
   headers: Record<string, string>;
   url: string;
   engineUsed: string;
+  responseType?: "text" | "base64";
 }
 
 /**
@@ -58,7 +59,7 @@ export class FastCrawler {
     this.proxyUrl = proxyUrl || null;
   }
 
-  async fetch(url: string, headers?: Record<string, string>, preset?: HeaderPreset): Promise<FetchResult> {
+  async fetch(url: string, headers?: Record<string, string>, preset?: HeaderPreset, responseType: "text" | "base64" = "text"): Promise<FetchResult> {
     let result: FetchResult | null = null;
     let error: Error | null = null;
 
@@ -75,15 +76,26 @@ export class FastCrawler {
 
     const crawler = new HttpCrawler({
       proxyConfiguration,
+      // Allow image MIME types
+      additionalMimeTypes: ["image/png", "image/jpeg", "image/webp", "image/gif", "application/octet-stream"],
       // We only want to process the single request we add
       maxRequestsPerCrawl: 1,
       requestHandler: async ({ body, response, request }) => {
+        let content = "";
+        if (responseType === "base64") {
+             // Crawlee/Got passes body as Buffer
+             content = (body as Buffer).toString("base64");
+        } else {
+             content = body.toString();
+        }
+
         result = {
           statusCode: response.statusCode || 0,
-          content: body.toString(),
+          content,
           headers: response.headers as Record<string, string>,
           url: response.url || request.url,
           engineUsed: "crawlee:http",
+          responseType,
         };
       },
       errorHandler: async ({ error: e }) => {
@@ -129,7 +141,7 @@ export class BrowserCrawler {
     };
   }
 
-  async fetch(url: string, headers?: Record<string, string>, preset?: HeaderPreset): Promise<FetchResult> {
+  async fetch(url: string, headers?: Record<string, string>, preset?: HeaderPreset, responseType: "text" | "base64" = "text"): Promise<FetchResult> {
     let result: FetchResult | null = null;
     let error: Error | null = null;
 

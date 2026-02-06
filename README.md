@@ -68,7 +68,19 @@ Basic fetching for HTML content. Supports both fast (HTTP) and browser-based eng
   "engine": "auto",       // "auto" | "fast" | "browser"
   "renderJs": false,      // true to use browser engine
   "proxy": "http://...",  // Optional proxy URL
-  "format": "html"        // "html" | "markdown" | "html-stripped"
+  "format": "html",       // "html" | "markdown" | "html-stripped"
+  "responseType": "text"  // "text" | "base64" (use base64 for images)
+}
+```
+
+#### Image Fetching Example
+
+To fetch an image as a base64 string, set `responseType` to `"base64"` and ensure `engine` is `"fast"` or `"auto"`.
+
+```json
+{
+  "url": "https://example.com/logo.png",
+  "responseType": "base64"
 }
 ```
 

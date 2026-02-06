@@ -59,6 +59,37 @@ describe("FastCrawler", () => {
     expect(result.statusCode).toBe(200);
   });
 
+  it("should return base64 content when responseType is base64", async () => {
+    let capturedRun: any;
+    (HttpCrawler as any).mockImplementation((options: any) => {
+      const mockRun = vi.fn().mockImplementation(async () => {
+        // Simulate successful request handling
+        await options.requestHandler({
+          body: Buffer.from("Hello World"),
+          response: {
+            statusCode: 200,
+            headers: { "content-type": "text/plain" },
+            url: "http://example.com",
+          },
+          request: { url: "http://example.com" },
+        } as any);
+      });
+      capturedRun = mockRun;
+      return { run: mockRun };
+    });
+
+    const crawler = new FastCrawler();
+    const result = await crawler.fetch("http://example.com", undefined, undefined, "base64");
+
+    expect(capturedRun).toHaveBeenCalledWith([{
+      url: "http://example.com",
+      headers: {},
+    }]);
+    // "Hello World" in base64 is "SGVsbG8gV29ybGQ="
+    expect(result.content).toBe("SGVsbG8gV29ybGQ=");
+    expect(result.responseType).toBe("base64");
+  });
+
   it("should throw if crawler results in error", async () => {
     (HttpCrawler as any).mockImplementation((options: any) => {
       const mockRun = vi.fn().mockImplementation(async () => {
