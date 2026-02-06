@@ -6,6 +6,7 @@ import { fileURLToPath } from "url";
 import { WebSocketServer, WebSocket } from "ws";
 import fs from "fs";
 import { FastCrawler, BrowserCrawler, type FetchResult } from "./crawlerClients.js";
+import { AdvancedCrawler, type AdvancedFetchRequest } from "./advancedOptions.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -348,7 +349,12 @@ async function start() {
     // To keep it clean, let's extract the handler.
     
     // (See below for handler extraction implementation)
+    // (See below for handler extraction implementation)
     await handleFetchRequest(req, res);
+  });
+
+  crawlerApp.post("/api/fetch/advanced", async (req: Request, res: Response) => {
+      await handleAdvancedFetchRequest(req, res);
   });
 
   // Health check for crawler service
@@ -373,6 +379,31 @@ interface FetchRequest {
   headers?: Record<string, string>;
   preset?: "chrome";
   format?: "html" | "markdown" | "html-stripped"; // New Field
+}
+
+function processContentFormat(content: string, url: string, format?: string): { content: string, markdown?: string } {
+    let finalContent = content;
+    let finalMarkdown: string | undefined;
+
+    if (format === "markdown") {
+        try {
+            finalMarkdown = htmlToMarkdown(content, url);
+        } catch (e) {
+            logger.error(`Markdown conversion failed: ${e}`);
+        }
+    } else if (format === "html-stripped") {
+        try {
+             // Extract main content (stripped HTML)
+             const extracted = extractMainContent(content, url);
+             if (extracted) {
+                 finalContent = extracted.content;
+             }
+        } catch (e) {
+             logger.error(`Stripped HTML conversion failed: ${e}`);
+        }
+    }
+
+    return { content: finalContent, markdown: finalMarkdown };
 }
 
 async function handleFetchRequest(req: Request, res: Response) {
@@ -414,26 +445,7 @@ async function handleFetchRequest(req: Request, res: Response) {
     logger.success(`Fetched ${url} - Status: ${result.statusCode} (${result.engineUsed})`);
 
     // Handle Conversions
-    let finalContent = result.content;
-    let finalMarkdown: string | undefined;
-
-    if (format === "markdown") {
-        try {
-            finalMarkdown = htmlToMarkdown(result.content, url);
-        } catch (e) {
-            logger.error(`Markdown conversion failed: ${e}`);
-        }
-    } else if (format === "html-stripped") {
-        try {
-             // Extract main content (stripped HTML)
-             const extracted = extractMainContent(result.content, url);
-             if (extracted) {
-                 finalContent = extracted.content;
-             }
-        } catch (e) {
-             logger.error(`Stripped HTML conversion failed: ${e}`);
-        }
-    }
+    const { content: finalContent, markdown: finalMarkdown } = processContentFormat(result.content, url, format);
 
     res.json({
       success: true,
@@ -452,6 +464,46 @@ async function handleFetchRequest(req: Request, res: Response) {
     });
   }
 }
+
+async function handleAdvancedFetchRequest(req: Request, res: Response) {
+    const request = req.body as AdvancedFetchRequest;
+    const { format = "html" } = request;
+    
+    // Validate
+    if (!request.url) {
+        res.status(400).json({ error: "URL is required" });
+        return;
+    }
+
+    try {
+        logger.info(`Starting Advanced Crawl: ${request.url}`);
+        const crawler = new AdvancedCrawler(globalConfig.browserlessUrl, request.proxy || globalConfig.proxyUrl, {
+            stealth: globalConfig.browserStealth,
+            headless: globalConfig.browserHeadless
+        });
+
+        const result = await crawler.fetch(request);
+        logger.success(`Advanced Crawl Finished: ${request.url}`);
+
+        // Handle Conversions
+        const { content: finalContent, markdown: finalMarkdown } = processContentFormat(result.content, request.url, format);
+        
+        // Merge conversion results
+        const finalResult = {
+            ...result,
+            content: finalContent,
+            markdown: finalMarkdown
+        };
+
+        res.json({ success: true, ...finalResult });
+
+    } catch (error: any) {
+        logger.fail(`Advanced Crawl Failed: ${error.message}`);
+        res.json({ success: false, error: error.message });
+    }
+}
+
+app.post("/api/fetch/advanced", handleAdvancedFetchRequest);
 
 // Update the main app route to use the extracted handler
 app.post("/api/fetch", handleFetchRequest);
