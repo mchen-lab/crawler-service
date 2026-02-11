@@ -7,6 +7,7 @@ import { WebSocketServer, WebSocket } from "ws";
 import fs from "fs";
 import { FastCrawler, BrowserCrawler, type FetchResult } from "./crawlerClients.js";
 import { AdvancedCrawler, type AdvancedFetchRequest } from "./advancedOptions.js";
+import { StealthCrawler } from "./stealthCrawler.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -17,7 +18,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 interface GlobalConfig {
   browserlessUrl: string;
   proxyUrl: string;
-  defaultEngine: "auto" | "fast" | "browser";
+  defaultEngine: "auto" | "fast" | "browser" | "stealth";
   browserStealth: boolean;
   browserHeadless: boolean;
 }
@@ -210,8 +211,9 @@ app.delete("/api/logs", (_req: Request, res: Response) => {
 
 interface FetchRequest {
   url: string;
-  engine?: "auto" | "fast" | "browser";
+  engine?: "auto" | "fast" | "browser" | "stealth";
   renderJs?: boolean;
+  waitForJs?: boolean;
   proxy?: string;
   headers?: Record<string, string>;
   preset?: "chrome";
@@ -373,8 +375,9 @@ import { htmlToMarkdown, extractMainContent } from "./markdown.js";
 
 interface FetchRequest {
   url: string;
-  engine?: "auto" | "fast" | "browser";
+  engine?: "auto" | "fast" | "browser" | "stealth";
   renderJs?: boolean;
+  waitForJs?: boolean;
   proxy?: string;
   headers?: Record<string, string>;
   preset?: "chrome";
@@ -408,7 +411,7 @@ function processContentFormat(content: string, url: string, format?: string): { 
 }
 
 async function handleFetchRequest(req: Request, res: Response) {
-  const { url, engine = "auto", renderJs = false, proxy, headers, preset, format = "html", responseType = "text" } = req.body as FetchRequest;
+  const { url, engine = "auto", renderJs = false, waitForJs = false, proxy, headers, preset, format = "html", responseType = "text" } = req.body as FetchRequest;
 
   if (!url) {
     res.status(400).json({ error: "URL is required" });
@@ -418,16 +421,19 @@ async function handleFetchRequest(req: Request, res: Response) {
   const targetProxy = proxy || globalConfig.proxyUrl;
 
   // Determine which engine to use
+  const useStealth = engine === "stealth";
   let useBrowser = false;
-  if (engine === "browser") {
-    useBrowser = true;
-  } else if (engine === "fast") {
-    useBrowser = false;
-  } else if (renderJs) {
-    useBrowser = true;
-  } else {
-    // Auto mode: default to fast
-    useBrowser = false;
+  if (!useStealth) {
+    if (engine === "browser") {
+      useBrowser = true;
+    } else if (engine === "fast") {
+      useBrowser = false;
+    } else if (renderJs) {
+      useBrowser = true;
+    } else {
+      // Auto mode: default to fast
+      useBrowser = false;
+    }
   }
 
   // FORCE fast mode if responseType is base64 (browser mode doesn't support binary efficienty yet)
@@ -439,7 +445,15 @@ async function handleFetchRequest(req: Request, res: Response) {
   try {
     let result: FetchResult;
 
-    if (useBrowser) {
+    if (useStealth) {
+      logger.info(`Routing to Stealth Lane (patchright): ${url} (waitForJs: ${waitForJs})`);
+      const crawler = new StealthCrawler({
+        headless: globalConfig.browserHeadless,
+        waitForJs,
+        proxy: targetProxy,
+      });
+      result = await crawler.fetch(url, headers, preset, responseType);
+    } else if (useBrowser) {
       logger.info(`Routing to Browser Lane: ${url} (preset: ${preset || "none"})`);
       const crawler = new BrowserCrawler(globalConfig.browserlessUrl, targetProxy);
       result = await crawler.fetch(url, headers, preset, responseType);
