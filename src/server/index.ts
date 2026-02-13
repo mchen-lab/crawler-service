@@ -11,6 +11,11 @@ import { StealthCrawler } from "./stealthCrawler.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+// Load OpenAPI spec (once at startup)
+const openapiSpec = JSON.parse(
+  fs.readFileSync(path.resolve(__dirname, "../../openapi.json"), "utf-8")
+);
+
 // =============================================================================
 // Config Types
 // =============================================================================
@@ -105,6 +110,9 @@ export const logger = {
 // =============================================================================
 // API Routes
 // =============================================================================
+
+// OpenAPI Spec
+app.get("/api/openapi.json", (_req: Request, res: Response) => res.json(openapiSpec));
 
 // Status API
 async function checkBrowserConnection(wsUrl: string): Promise<boolean> {
@@ -358,6 +366,9 @@ async function start() {
   crawlerApp.post("/api/fetch/advanced", async (req: Request, res: Response) => {
       await handleAdvancedFetchRequest(req, res);
   });
+
+  // OpenAPI spec on dedicated crawler API
+  crawlerApp.get("/api/openapi.json", (_req, res) => res.json(openapiSpec));
 
   // Health check for crawler service
   crawlerApp.get("/health", (_req, res) => res.json({ status: "ok", type: "crawler-api" }));

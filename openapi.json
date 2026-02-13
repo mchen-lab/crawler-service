@@ -1,0 +1,332 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Crawler Service",
+    "description": "Multi-engine web crawler with Fast (Node.js fetch), Browser (Puppeteer via Browserless), and Stealth (Patchright) lanes. Supports HTML, Markdown, and stripped-HTML output formats, plus binary base64 retrieval.",
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "http://localhost:31170",
+      "description": "Main server (UI + API)"
+    },
+    {
+      "url": "http://localhost:31171",
+      "description": "Dedicated Crawler API"
+    }
+  ],
+  "paths": {
+    "/api/fetch": {
+      "post": {
+        "operationId": "fetch_page",
+        "summary": "Fetch a web page",
+        "description": "Fetch a web page and return its content. Supports 4 engines: 'auto' (default, picks best), 'fast' (Node.js fetch, fastest), 'browser' (Puppeteer via Browserless, for JS-heavy sites), or 'stealth' (Patchright, for heavily protected anti-bot sites like Cloudflare). Use format='markdown' for clean LLM-friendly text, 'html-stripped' for article body only, or 'html' for raw HTML. Strategy: start with engine='auto'. If the page returns empty content or blocked messages, retry with engine='browser' and renderJs=true. If still blocked by anti-bot protection (Cloudflare, etc.), use engine='stealth'. For sites that need realistic headers, add preset='chrome'.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FetchRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Fetch result (check 'success' field)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FetchResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing required parameter",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": { "type": "string", "example": "URL is required" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/fetch/advanced": {
+      "post": {
+        "operationId": "fetch_page_advanced",
+        "summary": "Advanced page fetch with browser scripting",
+        "description": "Advanced fetch using Puppeteer with support for JavaScript execution on the page (jsAction), API call interception (apiPatterns), and automatic image downloading/uploading (imagesToDownload + uploadConfig). Always uses the browser engine.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdvancedFetchRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Advanced fetch result (check 'success' field)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdvancedFetchResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing required parameter",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": { "type": "string", "example": "URL is required" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "FetchRequest": {
+        "type": "object",
+        "required": ["url"],
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "URL to fetch"
+          },
+          "engine": {
+            "type": "string",
+            "enum": ["auto", "fast", "browser", "stealth"],
+            "default": "auto",
+            "description": "Engine: 'auto' (default, picks best), 'fast' (Node.js fetch), 'browser' (Puppeteer), or 'stealth' (Patchright, anti-bot bypass)"
+          },
+          "format": {
+            "type": "string",
+            "enum": ["html", "markdown", "html-stripped"],
+            "default": "html",
+            "description": "Output format: 'html' (raw, default), 'markdown' (LLM-friendly), or 'html-stripped' (article text only)"
+          },
+          "renderJs": {
+            "type": "boolean",
+            "default": false,
+            "description": "Force browser engine for JavaScript rendering"
+          },
+          "waitForJs": {
+            "type": "boolean",
+            "default": false,
+            "description": "Wait for JavaScript execution to complete (stealth engine only)"
+          },
+          "proxy": {
+            "type": "string",
+            "description": "Override proxy URL (uses server default if not specified)"
+          },
+          "headers": {
+            "type": "object",
+            "additionalProperties": { "type": "string" },
+            "description": "Custom HTTP headers to send with the request"
+          },
+          "preset": {
+            "type": "string",
+            "enum": ["chrome"],
+            "description": "Header preset: 'chrome' to mimic Chrome browser headers"
+          },
+          "responseType": {
+            "type": "string",
+            "enum": ["text", "base64"],
+            "default": "text",
+            "description": "Response encoding: 'text' (default) or 'base64' for binary content"
+          }
+        }
+      },
+      "FetchResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "description": "Whether the fetch succeeded"
+          },
+          "statusCode": {
+            "type": "integer",
+            "description": "HTTP status code from the target page"
+          },
+          "content": {
+            "type": "string",
+            "description": "Page content (HTML, stripped HTML, or base64 depending on format/responseType)"
+          },
+          "markdown": {
+            "type": "string",
+            "description": "Markdown conversion of the page (only present when format='markdown')"
+          },
+          "title": {
+            "type": "string",
+            "description": "Page title if extracted"
+          },
+          "headers": {
+            "type": "object",
+            "additionalProperties": { "type": "string" },
+            "description": "Response headers from the target page"
+          },
+          "url": {
+            "type": "string",
+            "description": "Final URL after any redirects"
+          },
+          "engineUsed": {
+            "type": "string",
+            "description": "Which engine was actually used for the fetch"
+          },
+          "error": {
+            "type": "string",
+            "description": "Error message (only present when success=false)"
+          }
+        }
+      },
+      "AdvancedFetchRequest": {
+        "type": "object",
+        "required": ["url"],
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "URL to fetch"
+          },
+          "format": {
+            "type": "string",
+            "enum": ["html", "markdown", "html-stripped"],
+            "default": "html",
+            "description": "Output format for page content"
+          },
+          "proxy": {
+            "type": "string",
+            "description": "Override proxy URL"
+          },
+          "headers": {
+            "type": "object",
+            "additionalProperties": { "type": "string" },
+            "description": "Custom HTTP headers"
+          },
+          "preset": {
+            "type": "string",
+            "enum": ["chrome"],
+            "description": "Header preset: 'chrome' to mimic Chrome browser headers"
+          },
+          "jsAction": {
+            "type": "string",
+            "description": "JavaScript code to execute on the page after loading (e.g., scrolling, clicking buttons)"
+          },
+          "apiPatterns": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Regex patterns to intercept API calls made by the page (captured calls returned in response)"
+          },
+          "imagesToDownload": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "CSS selectors or URLs of images to download from the page"
+          },
+          "uploadConfig": {
+            "type": "object",
+            "description": "Configuration for auto-uploading downloaded images to upload-service",
+            "properties": {
+              "baseUrl": {
+                "type": "string",
+                "description": "Upload service base URL"
+              },
+              "apiKey": {
+                "type": "string",
+                "description": "Upload service API key"
+              },
+              "bucket": {
+                "type": "string",
+                "description": "Target bucket name"
+              }
+            },
+            "required": ["baseUrl", "apiKey", "bucket"]
+          }
+        }
+      },
+      "AdvancedFetchResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "description": "Whether the fetch succeeded"
+          },
+          "statusCode": {
+            "type": "integer",
+            "description": "HTTP status code"
+          },
+          "content": {
+            "type": "string",
+            "description": "Page content"
+          },
+          "markdown": {
+            "type": "string",
+            "description": "Markdown conversion (only when format='markdown')"
+          },
+          "headers": {
+            "type": "object",
+            "additionalProperties": { "type": "string" },
+            "description": "Response headers"
+          },
+          "url": {
+            "type": "string",
+            "description": "Final URL after redirects"
+          },
+          "engineUsed": {
+            "type": "string",
+            "description": "Engine used for the fetch"
+          },
+          "apiCalls": {
+            "type": "array",
+            "description": "Intercepted API calls (only when apiPatterns specified)",
+            "items": {
+              "type": "object",
+              "properties": {
+                "url": { "type": "string" },
+                "method": { "type": "string" },
+                "status": { "type": "integer" },
+                "responseBody": { "description": "Parsed response body" },
+                "timestamp": { "type": "number" }
+              }
+            }
+          },
+          "resources": {
+            "type": "array",
+            "description": "Downloaded/uploaded resource results (only when imagesToDownload specified)",
+            "items": {
+              "type": "object",
+              "properties": {
+                "originalUrl": { "type": "string" },
+                "status": { "type": "string", "enum": ["success", "error"] },
+                "uploadedUrl": { "type": "string" },
+                "error": { "type": "string" },
+                "mimeType": { "type": "string" },
+                "size": { "type": "integer" }
+              }
+            }
+          },
+          "error": {
+            "type": "string",
+            "description": "Error message (only when success=false)"
+          }
+        }
+      }
+    }
+  }
+}
