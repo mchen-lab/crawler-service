@@ -11,10 +11,25 @@ import { StealthCrawler } from "./stealthCrawler.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// Load OpenAPI spec (once at startup)
-const openapiSpec = JSON.parse(
-  fs.readFileSync(path.resolve(__dirname, "../../openapi.json"), "utf-8")
-);
+// Load OpenAPI spec (once at startup, non-fatal if missing)
+let openapiSpec: Record<string, unknown> = {};
+try {
+  const candidates = [
+    path.resolve(__dirname, "../../openapi.json"),   // from src/server/
+    path.resolve(process.cwd(), "openapi.json"),     // from project root
+    path.resolve(__dirname, "../../../openapi.json"), // from dist/server/
+  ];
+  for (const p of candidates) {
+    if (fs.existsSync(p)) {
+      openapiSpec = JSON.parse(fs.readFileSync(p, "utf-8"));
+      console.log(`📄 Loaded OpenAPI spec from ${p}`);
+      break;
+    }
+  }
+  if (!openapiSpec.openapi) console.warn("⚠️  OpenAPI spec not found at any candidate path");
+} catch (err) {
+  console.warn(`⚠️  Failed to load OpenAPI spec: ${(err as Error).message}`);
+}
 
 // =============================================================================
 // Config Types
