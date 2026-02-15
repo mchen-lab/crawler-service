@@ -19,7 +19,7 @@ import * as path from 'path';
 const API = 'http://localhost:31172';
 const TIMESTAMP = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
 const BASE_DIR = path.join(process.cwd(), 'data', `gnews_${TIMESTAMP}`);
-const CONCURRENCY = 5; // 5 parallel browser tabs
+const CONCURRENCY = 10; // stress test with 4-browser round-robin pool
 const ARTICLES_PER_CATEGORY = 5;
 
 // ─── Google News RSS Topic IDs ──────────────────────────────────
