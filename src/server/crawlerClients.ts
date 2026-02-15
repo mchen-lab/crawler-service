@@ -6,15 +6,8 @@
  * 2. BrowserCrawler - Uses PuppeteerCrawler to connect to browserless.
  */
 
-import { HttpCrawler, PuppeteerCrawler, ProxyConfiguration, Configuration } from "crawlee";
-import puppeteerExtra from "puppeteer-extra";
-import StealthPlugin from "puppeteer-extra-plugin-stealth";
-
-// Cast to any to avoid TS issues with NodeNext module resolution and missing types
-const puppeteer = puppeteerExtra as any;
-
-// Use stealth plugin for all puppeteer instances (local)
-puppeteer.use(StealthPlugin());
+import { HttpCrawler, ProxyConfiguration, Configuration } from "crawlee";
+import { browserPool } from "./browserPool.js";
 
 // --- Header Presets ---
 
@@ -117,8 +110,8 @@ export class FastCrawler {
 }
 
 /**
- * Browser lane crawler using Crawlee's PuppeteerCrawler.
- * Connects to the external Browserless instance via WebSocket.
+ * Browser lane crawler using persistent BrowserPool.
+ * Keeps one browser connected, each request opens/closes a tab.
  */
 export interface BrowserCrawlerOptions {
   stealth?: boolean;
@@ -130,8 +123,6 @@ export class BrowserCrawler {
   private proxyUrl: string | null;
   private options: BrowserCrawlerOptions;
 
-  private engineType: string = "crawlee:puppeteer:unknown";
-
   constructor(browserlessUrl: string, proxyUrl?: string, options: BrowserCrawlerOptions = {}) {
     this.browserlessUrl = browserlessUrl;
     this.proxyUrl = proxyUrl || null;
@@ -141,110 +132,22 @@ export class BrowserCrawler {
     };
   }
 
-  async fetch(url: string, headers?: Record<string, string>, preset?: HeaderPreset, responseType: "text" | "base64" = "text"): Promise<FetchResult> {
-    let result: FetchResult | null = null;
-    let error: Error | null = null;
-
-    const proxyConfiguration = this.proxyUrl 
-      ? new ProxyConfiguration({ proxyUrls: [this.proxyUrl] }) 
-      : undefined;
-
-    // Use ephemeral configuration to prevent queue persistence/deduplication across requests
-    const config = new Configuration({
-      persistStorage: false,
+  async fetch(url: string, headers?: Record<string, string>, preset?: HeaderPreset, responseType: "text" | "base64" = "text", renderDelayMs?: number): Promise<FetchResult> {
+    // Ensure pool is connected (lazy init — safe to call multiple times)
+    await browserPool.connect({
+      browserlessUrl: this.browserlessUrl,
+      proxyUrl: this.proxyUrl || undefined,
+      stealth: this.options.stealth,
+      headless: this.options.headless,
     });
 
     const finalHeaders = { ...getPresetHeaders(preset), ...headers };
 
-    const crawler = new PuppeteerCrawler({
-      proxyConfiguration,
-      launchContext: {
-        // Custom launcher to FORCE connect() but FALLBACK to launch()
-        launcher: {
-            launch: async (options: any) => {
-                try {
-                    // 1. Try connecting to browserless/remote if URL provided
-                    if (this.browserlessUrl) {
-                        let wsEndpoint = this.browserlessUrl;
-                        const params: string[] = [];
-
-                        if (this.proxyUrl) {
-                            params.push(`--proxy-server=${encodeURIComponent(this.proxyUrl)}`);
-                        }
-                        if (this.options.stealth) {
-                            params.push('stealth');
-                        }
-                        if (!this.options.headless) {
-                            params.push('headless=false');
-                        }
-
-                        if (params.length > 0) {
-                            const joinChar = wsEndpoint.includes('?') ? '&' : '?';
-                            wsEndpoint = `${wsEndpoint}${joinChar}${params.join('&')}`;
-                        }
-
-                        console.log(`[BrowserCrawler] Connecting to remote: ${wsEndpoint}`);
-                        // Use puppeteer-extra to connect (it works same as standard)
-                        const browser = await puppeteer.connect({
-                            ...options,
-                            browserWSEndpoint: wsEndpoint,
-                        });
-                        this.engineType = "crawlee:browserless";
-                        return browser;
-                    }
-                } catch (e: any) {
-                    console.warn(`[BrowserCrawler] Failed to connect to ${this.browserlessUrl}, falling back to local launch. Error: ${e.message}`);
-                }
-                
-                // 2. Fallback: Launch local Chrome (requires puppeteer package)
-                console.log("[BrowserCrawler] Launching local browser...");
-                this.engineType = "crawlee:local-puppeteer";
-                // Use puppeteer-extra to launch (includes Stealth)
-                return await puppeteer.launch({
-                    ...options,
-                    headless: this.options.headless ? "new" : false, // Use new headless mode
-                    args: ["--no-sandbox", "--disable-setuid-sandbox"], // Safe defaults for local/docker
-                });
-            },
-            product: "chrome",
-            connect: puppeteer.connect,
-            executablePath: puppeteer.executablePath,
-            defaultArgs: puppeteer.defaultArgs,
-        } as any,
-      },
-      // Important: prevent Crawlee from managing local browser processes incompatible with browserWSEndpoint
-      requestHandler: async ({ page, response, request }) => {
-        // Apply custom headers if provided
-        if (request.headers && Object.keys(request.headers).length > 0) {
-            // Puppeteer requires explicit setting of extra headers
-            await page.setExtraHTTPHeaders(request.headers as Record<string, string>);
-        }
-
-        const content = await page.content();
-        const headers = response?.headers() || {};
-        const statusCode = response?.status() || 200;
-        const finalUrl = page.url();
-
-        result = {
-          statusCode,
-          content,
-          headers: headers as Record<string, string>,
-          url: finalUrl,
-          engineUsed: this.engineType,
-        };
-      },
-      errorHandler: async ({ error: e }) => {
-          console.error("BrowserCrawler intermediate error:", e);
-      },
-      failedRequestHandler: async ({ error: e }) => {
-        error = e as Error;
-      },
-    }, config);
-
-    await crawler.run([{ url, headers: finalHeaders }]);
-
-    if (error) throw error;
-    if (!result) throw new Error("No result from browser crawler");
-    return result;
+    return await browserPool.fetchInTab(url, {
+      headers: Object.keys(finalHeaders).length > 0 ? finalHeaders : undefined,
+      renderDelayMs,
+      responseType,
+    });
   }
 }
+
